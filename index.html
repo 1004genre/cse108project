@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACME University - Student Enrollment</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Page -->
+    <div id="login-page" class="page active">
+        <div class="login-container">
+            <div class="login-box">
+                <h1>ACME University</h1>
+                <form id="login-form">
+                    <div class="form-group">
+                        <input type="text" id="username" placeholder="Username" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="password" placeholder="Password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Sign in</button>
+                    <div id="login-error" class="error-message"></div>
+                </form>
+                <div class="demo-credentials">
+                    <h3>Demo Credentials:</h3>
+                    <p><strong>Student:</strong> alizehjahan / password</p>
+                    <p><strong>Teacher:</strong> sivanipotta / password</p>
+                    <p><strong>Admin:</strong> admin / admin</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Page -->
+    <div id="dashboard-page" class="page">
+        <nav class="navbar">
+            <div class="nav-content">
+                <h1>ACME University</h1>
+                <div class="nav-right">
+                    <span id="welcome-text">Welcome!</span>
+                    <button id="logout-btn" class="btn btn-secondary">Sign out</button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <!-- Student View -->
+            <div id="student-view" class="view">
+                <div class="button-group">
+                    <button id="my-courses-btn" class="btn btn-tab active">Your Courses</button>
+                    <button id="all-courses-btn" class="btn btn-tab">Add Courses</button>
+                </div>
+
+                <div id="my-courses-section" class="section active">
+                    <h2>Your Courses</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Course Name</th>
+                                <th>Teacher</th>
+                                <th>Time</th>
+                                <th>Students Enrolled</th>
+                                <th>Your Grade</th>
+                            </tr>
+                        </thead>
+                        <tbody id="my-courses-body">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="all-courses-section" class="section">
+                    <h2>Available Courses</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Course Name</th>
+                                <th>Teacher</th>
+                                <th>Time</th>
+                                <th>Students Enrolled</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="all-courses-body">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Teacher View -->
+            <div id="teacher-view" class="view">
+                <h2>Your Courses</h2>
+                <div id="teacher-courses-list">
+                </div>
+            </div>
+
+            <!-- Admin View -->
+            <div id="admin-view" class="view">
+                <h2>Admin Panel</h2>
+                <p>Use the Flask-Admin interface to manage all data:</p>
+                <a href="/admin" class="btn btn-primary" target="_blank">Open Admin Panel</a>
+                <div class="admin-info">
+                    <h3>Admin Capabilities:</h3>
+                    <ul>
+                        <li>Create, read, update, and delete users</li>
+                        <li>Create, read, update, and delete courses</li>
+                        <li>Create, read, update, and delete enrollments</li>
+                        <li>Full database management</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
