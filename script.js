@@ -60,14 +60,27 @@ async function handleLogin(e) {
             body: JSON.stringify({ username, password }),
         });
         
-        const data = await response.json();
-        
-        if (data.success) {
+        // Try to parse JSON response; if parsing fails, data will be null
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (e) {
+            console.warn('Failed to parse JSON response from /api/login', e);
+        }
+
+        if (response.ok && data && data.success) {
             currentUser = data.user;
             errorDiv.textContent = '';
             showDashboard();
         } else {
-            errorDiv.textContent = 'Invalid username or password';
+            // Prefer server-provided error message when available
+            let msg = 'Invalid username or password';
+            if (data && data.error) {
+                msg = data.error;
+            } else if (!response.ok) {
+                msg = data && data.error ? data.error : `Server error (${response.status})`;
+            }
+            errorDiv.textContent = msg;
         }
     } catch (error) {
         console.error('Login error:', error);

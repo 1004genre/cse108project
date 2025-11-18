@@ -5,9 +5,12 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 
-app = Flask(__name__)
+app = Flask(__name__, instance_relative_config=True)
+# Ensure instance folder exists for the SQLite database and other instance files
+os.makedirs(app.instance_path, exist_ok=True)
 app.config['SECRET_KEY'] = 'your-secret-key-here-change-in-production'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///enrollment.db'
+# Use a file inside the instance folder so it is not accidentally committed
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'enrollment.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -53,7 +56,12 @@ class SecureAdminIndexView(AdminIndexView):
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('serve_index'))
 
-admin = Admin(app, name='ACME Admin', template_mode='bootstrap3', index_view=SecureAdminIndexView())
+# flask-admin versions differ in supported kwargs; tolerate both constructors
+try:
+    admin = Admin(app, name='ACME Admin', template_mode='bootstrap3', index_view=SecureAdminIndexView())
+except TypeError:
+    # older/newer versions might not accept template_mode
+    admin = Admin(app, name='ACME Admin', index_view=SecureAdminIndexView())
 admin.add_view(SecureModelView(User, db.session))
 admin.add_view(SecureModelView(Course, db.session))
 admin.add_view(SecureModelView(Enrollment, db.session))
@@ -69,8 +77,8 @@ def init_db():
             users = [
                 User(username='alizehjahan', password=generate_password_hash('password'), 
                      full_name='Alizeh Jahan', role='student'),
-                User(username='sandy', password=generate_password_hash('password'), 
-                     full_name='Sandy Martinez', role='student'),
+                User(username='isha', password=generate_password_hash('password'), 
+                     full_name='Isha Mukherjee', role='student'),
                 User(username='sivanipotta', password=generate_password_hash('password'), 
                      full_name='Dr Sivani Potta', role='teacher'),
                 User(username='drjones', password=generate_password_hash('password'), 
@@ -127,29 +135,46 @@ def serve_js():
 # ----- API: Authentication -----
 @app.route("/api/login", methods=["POST"])
 def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    
-    user = User.query.filter_by(username=username).first()
-    
-    if user and check_password_hash(user.password, password):
-        session['user_id'] = user.id
-        session['username'] = user.username
-        session['full_name'] = user.full_name
-        session['role'] = user.role
-        
-        return jsonify({
-            'success': True,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'full_name': user.full_name,
-                'role': user.role
-            }
-        })
-    
-    return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+    try:
+        # Accept JSON (from fetch) or form-encoded fallback (from plain form submit)
+        data = request.get_json(silent=True)
+        if not data:
+            # request.form is empty for JSON; this handles form submissions too
+            data = request.form.to_dict() if request.form else {}
+
+        username = (data.get('username') or '').strip()
+        password = (data.get('password') or '').strip()
+
+        # Log the attempt (never log the password)
+        app.logger.info("Login attempt for username='%s'", username)
+
+        user = User.query.filter_by(username=username).first()
+
+        if user and check_password_hash(user.password, password):
+            session['user_id'] = user.id
+            session['username'] = user.username
+            session['full_name'] = user.full_name
+            session['role'] = user.role
+
+            app.logger.info("Login success for username='%s' (id=%s)", username, user.id)
+
+            return jsonify({
+                'success': True,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'full_name': user.full_name,
+                    'role': user.role
+                }
+            })
+
+        app.logger.warning("Login failed for username='%s': invalid credentials", username)
+        return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+
+    except Exception as e:
+        # Log exception details for debugging
+        app.logger.exception("Exception during login for username='%s': %s", data.get('username') if isinstance(data, dict) else 'unknown', e)
+        return jsonify({'success': False, 'error': 'Server error'}), 500
 
 @app.route("/api/logout", methods=["POST"])
 def logout():
@@ -305,3 +330,13 @@ def update_grade(enrollment_id):
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)
+
+
+# Ensure DB is initialized once before handling requests (compatible with older Flask)
+def _ensure_db_once():
+    if not getattr(app, '_db_initialized', False):
+        init_db()
+        app._db_initialized = True
+
+# Register using before_request so it's compatible with different Flask versions
+app.before_request(_ensure_db_once)
