@@ -165,11 +165,37 @@ async function loadMyCourses() {
                 <td>${course.time}</td>
                 <td>${course.enrolled}/${course.capacity}</td>
                 <td>${course.grade}</td>
+                <td><button class="btn btn-danger" onclick="unenrollFromCourse(${course.id})">Unenroll</button></td>
             `;
             tbody.appendChild(row);
         });
     } catch (error) {
         console.error('Error loading courses:', error);
+    }
+}
+
+async function unenrollFromCourse(courseId) {
+    if (!confirm('Are you sure you want to unenroll from this course?')) return;
+
+    try {
+        const response = await fetch('/api/unenroll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ course_id: courseId })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok && data.success) {
+            // Refresh both lists so UI stays in sync
+            loadMyCourses();
+            loadAllCourses();
+        } else {
+            alert(data.error || data.message || 'Failed to unenroll');
+        }
+    } catch (err) {
+        console.error('Error unenrolling:', err);
+        alert('An error occurred while unenrolling.');
     }
 }
 

@@ -6,16 +6,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os
 
 app = Flask(__name__, instance_relative_config=True)
-# Ensure instance folder exists for the SQLite database and other instance files
 os.makedirs(app.instance_path, exist_ok=True)
+
+# Basic configuration. In production the SECRET_KEY should come from env vars.
 app.config['SECRET_KEY'] = 'your-secret-key-here-change-in-production'
-# Use a file inside the instance folder so it is not accidentally committed
+# Store SQLite DB under the instance folder (keeps it out of source control).
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'enrollment.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ----- Models -----
+# Define ORM models for users, courses and enrollments.
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -41,7 +42,7 @@ class Enrollment(db.Model):
     course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=False)
     grade = db.Column(db.Integer, default=0)
 
-# ----- Flask-Admin Setup -----
+# Flask-Admin Setup
 class SecureModelView(ModelView):
     def is_accessible(self):
         return session.get('role') == 'admin'
@@ -56,17 +57,15 @@ class SecureAdminIndexView(AdminIndexView):
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('serve_index'))
 
-# flask-admin versions differ in supported kwargs; tolerate both constructors
 try:
     admin = Admin(app, name='ACME Admin', template_mode='bootstrap3', index_view=SecureAdminIndexView())
 except TypeError:
-    # older/newer versions might not accept template_mode
     admin = Admin(app, name='ACME Admin', index_view=SecureAdminIndexView())
 admin.add_view(SecureModelView(User, db.session))
 admin.add_view(SecureModelView(Course, db.session))
 admin.add_view(SecureModelView(Enrollment, db.session))
 
-# ----- Initialize Database -----
+# Initialize Database, Create tables
 def init_db():
     with app.app_context():
         db.create_all()
@@ -119,7 +118,7 @@ def init_db():
                 db.session.add(enrollment)
             db.session.commit()
 
-# ----- Routes -----
+# Routes
 @app.route("/")
 def serve_index():
     return send_from_directory(".", "index.html")
@@ -132,20 +131,19 @@ def serve_css():
 def serve_js():
     return send_from_directory(".", "script.js")
 
-# ----- API: Authentication -----
+# Authentication + Login/logout/current-user endpoints
 @app.route("/api/login", methods=["POST"])
 def login():
     try:
-        # Accept JSON (from fetch) or form-encoded fallback (from plain form submit)
+        # Accept JSON
         data = request.get_json(silent=True)
         if not data:
-            # request.form is empty for JSON; this handles form submissions too
             data = request.form.to_dict() if request.form else {}
 
         username = (data.get('username') or '').strip()
         password = (data.get('password') or '').strip()
 
-        # Log the attempt (never log the password)
+        # Log the attempt 
         app.logger.info("Login attempt for username='%s'", username)
 
         user = User.query.filter_by(username=username).first()
@@ -172,7 +170,6 @@ def login():
         return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
 
     except Exception as e:
-        # Log exception details for debugging
         app.logger.exception("Exception during login for username='%s': %s", data.get('username') if isinstance(data, dict) else 'unknown', e)
         return jsonify({'success': False, 'error': 'Server error'}), 500
 
@@ -195,7 +192,7 @@ def current_user():
         })
     return jsonify({'logged_in': False})
 
-# ----- API: Courses -----
+# Courses
 @app.route("/api/courses", methods=["GET"])
 def get_courses():
     courses = Course.query.all()
@@ -265,9 +262,11 @@ def enroll():
     if 'user_id' not in session or session['role'] != 'student':
         return jsonify({'error': 'Not authorized'}), 401
     
+    # Read JSON payload and extract course_id
     data = request.get_json()
     course_id = data.get('course_id')
     
+    # Lookup the course and validate capacity and existing enrollment
     course = Course.query.get(course_id)
     if not course:
         return jsonify({'error': 'Course not found'}), 404
@@ -285,6 +284,41 @@ def enroll():
     db.session.commit()
     
     return jsonify({'success': True})
+
+
+@app.route("/api/unenroll", methods=["POST"])
+def unenroll():
+    """Idempotent endpoint to unenroll the current student from a course.
+
+    Accepts JSON: { "course_id": <id> }
+    Returns 200 + { success: True, message: ... } whether the student was enrolled or not.
+    Requires logged-in student role.
+    """
+    if 'user_id' not in session or session['role'] != 'student':
+        return jsonify({'error': 'Not authorized'}), 401
+
+    # Read payload and validate
+    data = request.get_json(silent=True) or {}
+    course_id = data.get('course_id')
+
+    if course_id is None:
+        return jsonify({'success': False, 'error': 'Missing course_id'}), 400
+
+    course = Course.query.get(course_id)
+    if not course:
+        return jsonify({'success': False, 'error': 'Course not found'}), 404
+
+    enrollment = Enrollment.query.filter_by(student_id=session['user_id'], course_id=course_id).first()
+    if not enrollment:
+        app.logger.info("Unenroll requested but no enrollment found: user_id=%s course_id=%s", session['user_id'], course_id)
+        return jsonify({'success': True, 'message': 'Not enrolled'}), 200
+
+    # Remove enrollment and commit change
+    db.session.delete(enrollment)
+    db.session.commit()
+
+    app.logger.info("Unenrolled user_id=%s from course_id=%s", session['user_id'], course_id)
+    return jsonify({'success': True, 'message': 'Unenrolled'}), 200
 
 @app.route("/api/course/<int:course_id>/students", methods=["GET"])
 def get_course_students(course_id):
@@ -332,11 +366,10 @@ if __name__ == "__main__":
     app.run(debug=True)
 
 
-# Ensure DB is initialized once before handling requests (compatible with older Flask)
+# Ensure DB is initialized once before handling requests
 def _ensure_db_once():
     if not getattr(app, '_db_initialized', False):
         init_db()
         app._db_initialized = True
 
-# Register using before_request so it's compatible with different Flask versions
 app.before_request(_ensure_db_once)
